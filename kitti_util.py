@@ -126,7 +126,7 @@ class Calibration(object):
                     0,      0,      1,      0]
                  = K * [1|t]
 
-        image2 coord:
+        image2 coord:`
          ----> x-axis (u)
         |
         |
@@ -165,6 +165,16 @@ class Calibration(object):
         self.f_u = self.P[0, 0]
         self.f_v = self.P[1, 1]
         self.b_x = self.P[0, 3] / (-self.f_u)  # relative
+        self.b_y = self.P[1, 3] / (-self.f_v)
+
+    def scale_P(self, h, w):
+        scale = np.array([[1/w,0.0,0.0], [0.0,1/h,0.0], [0.0,0.0,1.0]])
+        self.P = np.dot(scale, self.P)
+        self.c_u = self.P[0, 2]
+        self.c_v = self.P[1, 2]
+        self.f_u = self.P[0, 0]
+        self.f_v = self.P[1, 1]
+        self.b_x = self.P[0, 3] / (-self.f_u)
         self.b_y = self.P[1, 3] / (-self.f_v)
 
     def read_calib_file(self, filepath):
@@ -600,13 +610,22 @@ def project_to_image(pts_3d, P):
     pts_2d[:, 1] /= pts_2d[:, 2]
     return pts_2d[:, 0:2]
 
-
 def compute_box_3d(obj, P):
     """ Takes an object and a projection matrix (P) and projects the 3d
         bounding box into the image plane.
         Returns:
             corners_2d: (8,2) array in left image coord.
             corners_3d: (8,3) array in in rect camera coord.
+        
+        Draw 3d bounding box in image
+        qs: (8,3) array of vertices for the 3d box in following order:
+            1 -------- 0
+           /|         /|
+          2 -------- 3 .
+          | |        | |
+          . 5 -------- 4
+          |/         |/
+          6 -------- 7
     """
     # compute rotational matrix around yaw axis
     R = roty(obj.ry)
@@ -617,12 +636,14 @@ def compute_box_3d(obj, P):
     h = obj.h
 
     # 3d bounding box corners
-    x_corners = [l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2]
-    y_corners = [0, 0, 0, 0, -h, -h, -h, -h]
-    z_corners = [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2]
-
+    x_corners = l/2 * np.array([1,1,-1,-1,1,1,-1,-1])
+    # y_corners = [0, 0, 0, 0, -h, -h, -h, -h]
+    y_corners = h/2 * np.array([-1,-1,-1,-1,1,1,1,1])
+    y_corners = h/2 * np.array([1,1,1,1,-1,-1,-1,-1])
+    z_corners = w/2 * np.array([1,-1,-1,1,1,-1,-1,1])
     # rotate and translate 3d bounding box
     corners_3d = np.dot(R, np.vstack([x_corners, y_corners, z_corners]))
+    
     # print corners_3d.shape
     corners_3d[0, :] = corners_3d[0, :] + obj.t[0]
     corners_3d[1, :] = corners_3d[1, :] + obj.t[1]
@@ -669,7 +690,7 @@ def compute_orientation_3d(obj, P):
     return orientation_2d, np.transpose(orientation_3d)
 
 
-def draw_projected_box3d(image, qs, color=(0, 255, 0), thickness=2):
+def draw_projected_box3d(image, qs, color=(0, 255, 0), thickness=1):
     """ Draw 3d bounding box in image
         qs: (8,3) array of vertices for the 3d box in following order:
             1 -------- 0
@@ -683,14 +704,13 @@ def draw_projected_box3d(image, qs, color=(0, 255, 0), thickness=2):
     qs = qs.astype(np.int32)
     for k in range(0, 4):
         # Ref: http://docs.enthought.com/mayavi/mayavi/auto/mlab_helper_functions.html
-        i, j = k, (k + 1) % 4
-        # use LINE_AA for opencv3
-        # cv2.line(image, (qs[i,0],qs[i,1]), (qs[j,0],qs[j,1]), color, thickness, cv2.CV_AA)
-        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
-        i, j = k + 4, (k + 1) % 4 + 4
+        i, j = k, (k + 1) % 4 # (0,1) , (1,2), (2,3), (3,0)
         cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
 
-        i, j = k, k + 4
+        i, j = k + 4, (k + 1) % 4 + 4 # (4,5), (5,6), (6,7), (7,4)
+        cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
+
+        i, j = k, k + 4 # (0,4), (1,5), (2,6), (3,7)
         cv2.line(image, (qs[i, 0], qs[i, 1]), (qs[j, 0], qs[j, 1]), color, thickness)
     return image
 
@@ -796,3 +816,19 @@ def linear_regression(train_x, train_y, test_x):
     test_y = hypothesis_func(w_fit, test_x)
     test_y0 = hypothesis_func(w_fit, train_x)
     return test_y, test_y0
+
+def mark_center_point(img, obj, P, calib):
+    center = np.array([[obj.t[0], obj.t[1], obj.t[2]]])
+
+    # what if the x,y,z was velodyne frame
+    print(center, center.shape)
+
+    center = calib.project_ref_to_rect(center)
+    print(center, center.shape)
+    center = calib.project_rect_to_image(center)
+    #center = project_to_image(center, P)
+    print(center, center.shape)
+
+    cv2.circle(img, (int(center[0][0]),int(center[0][1])), radius = 5, color = (0, 0, 255), thickness = 5)
+
+    return img

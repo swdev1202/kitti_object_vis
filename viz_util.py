@@ -187,6 +187,9 @@ def draw_lidar(
     if color_by_intensity:
         color = pc[:, 2]
 
+    # pts_color = (0.6588,0.5137,0.1960)
+    pts_color = (168/255., 131/255., 50/255.)
+
     mlab.points3d(
         pc[:, 0],
         pc[:, 1],
@@ -233,84 +236,84 @@ def draw_lidar(
     )
 
     # draw fov (todo: update to real sensor spec.)
-    fov = np.array(
-        [[20.0, 20.0, 0.0, 0.0], [20.0, -20.0, 0.0, 0.0]], dtype=np.float64  # 45 degree
-    )
+    # fov = np.array(
+    #     [[20.0, 20.0, 0.0, 0.0], [20.0, -20.0, 0.0, 0.0]], dtype=np.float64  # 45 degree
+    # )
 
-    mlab.plot3d(
-        [0, fov[0, 0]],
-        [0, fov[0, 1]],
-        [0, fov[0, 2]],
-        color=(1, 1, 1),
-        tube_radius=None,
-        line_width=1,
-        figure=fig,
-    )
-    mlab.plot3d(
-        [0, fov[1, 0]],
-        [0, fov[1, 1]],
-        [0, fov[1, 2]],
-        color=(1, 1, 1),
-        tube_radius=None,
-        line_width=1,
-        figure=fig,
-    )
+    # mlab.plot3d(
+    #     [0, fov[0, 0]],
+    #     [0, fov[0, 1]],
+    #     [0, fov[0, 2]],
+    #     color=(1, 1, 1),
+    #     tube_radius=None,
+    #     line_width=1,
+    #     figure=fig,
+    # )
+    # mlab.plot3d(
+    #     [0, fov[1, 0]],
+    #     [0, fov[1, 1]],
+    #     [0, fov[1, 2]],
+    #     color=(1, 1, 1),
+    #     tube_radius=None,
+    #     line_width=1,
+    #     figure=fig,
+    # )
 
-    # draw square region
-    TOP_Y_MIN = -20
-    TOP_Y_MAX = 20
-    TOP_X_MIN = 0
-    TOP_X_MAX = 40
-    TOP_Z_MIN = -2.0
-    TOP_Z_MAX = 0.4
+    # # draw square region
+    # TOP_Y_MIN = -20
+    # TOP_Y_MAX = 20
+    # TOP_X_MIN = 0
+    # TOP_X_MAX = 40
+    # TOP_Z_MIN = -2.0
+    # TOP_Z_MAX = 0.4
 
-    x1 = TOP_X_MIN
-    x2 = TOP_X_MAX
-    y1 = TOP_Y_MIN
-    y2 = TOP_Y_MAX
-    mlab.plot3d(
-        [x1, x1],
-        [y1, y2],
-        [0, 0],
-        color=(0.5, 0.5, 0.5),
-        tube_radius=0.1,
-        line_width=1,
-        figure=fig,
-    )
-    mlab.plot3d(
-        [x2, x2],
-        [y1, y2],
-        [0, 0],
-        color=(0.5, 0.5, 0.5),
-        tube_radius=0.1,
-        line_width=1,
-        figure=fig,
-    )
-    mlab.plot3d(
-        [x1, x2],
-        [y1, y1],
-        [0, 0],
-        color=(0.5, 0.5, 0.5),
-        tube_radius=0.1,
-        line_width=1,
-        figure=fig,
-    )
-    mlab.plot3d(
-        [x1, x2],
-        [y2, y2],
-        [0, 0],
-        color=(0.5, 0.5, 0.5),
-        tube_radius=0.1,
-        line_width=1,
-        figure=fig,
-    )
+    # x1 = TOP_X_MIN
+    # x2 = TOP_X_MAX
+    # y1 = TOP_Y_MIN
+    # y2 = TOP_Y_MAX
+    # mlab.plot3d(
+    #     [x1, x1],
+    #     [y1, y2],
+    #     [0, 0],
+    #     color=(0.5, 0.5, 0.5),
+    #     tube_radius=0.1,
+    #     line_width=1,
+    #     figure=fig,
+    # )
+    # mlab.plot3d(
+    #     [x2, x2],
+    #     [y1, y2],
+    #     [0, 0],
+    #     color=(0.5, 0.5, 0.5),
+    #     tube_radius=0.1,
+    #     line_width=1,
+    #     figure=fig,
+    # )
+    # mlab.plot3d(
+    #     [x1, x2],
+    #     [y1, y1],
+    #     [0, 0],
+    #     color=(0.5, 0.5, 0.5),
+    #     tube_radius=0.1,
+    #     line_width=1,
+    #     figure=fig,
+    # )
+    # mlab.plot3d(
+    #     [x1, x2],
+    #     [y2, y2],
+    #     [0, 0],
+    #     color=(0.5, 0.5, 0.5),
+    #     tube_radius=0.1,
+    #     line_width=1,
+    #     figure=fig,
+    # )
 
     # mlab.orientation_axes()
     mlab.view(
-        azimuth=180,
-        elevation=70,
+        azimuth=90,
+        elevation=15,
         focalpoint=[12.0909996, -1.04700089, -2.03249991],
-        distance=62.0,
+        distance=150.0,
         figure=fig,
     )
     return fig
@@ -342,7 +345,11 @@ def draw_gt_boxes3d(
     for n in range(num):
         b = gt_boxes3d[n]
         if color_list is not None:
-            color = color_list[n]
+            # color = color_list[n]
+            if(label == 'Car'):
+                color = color_list[0]
+            else:
+                color = color_list[1]
         if draw_text:
             mlab.text3d(
                 b[4, 0],

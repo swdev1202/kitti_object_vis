@@ -34,13 +34,7 @@ class kitti_object(object):
         print(root_dir, split)
         self.split_dir = os.path.join(root_dir, split)
 
-        if split == "training":
-            self.num_samples = 7481
-        elif split == "testing":
-            self.num_samples = 7518
-        else:
-            print("Unknown split: %s" % (split))
-            exit(-1)
+        self.num_samples = 9100
 
         lidar_dir = "velodyne"
         depth_dir = "depth"
@@ -182,37 +176,57 @@ def viz_kitti_video():
     return
 
 
-def show_image_with_boxes(img, objects, calib, show3d=True, depth=None):
+def show_image_with_boxes(img, objects, pred_objects, calib, save_dir, data_idx, scale, save_img=False, show3d=True, depth=None):
     """ Show image with 2D bounding boxes """
     img1 = np.copy(img)  # for 2d bbox
     img2 = np.copy(img)  # for 3d bbox
-    img3 = np.copy(img)  # for 3d bbox
+
     for obj in objects:
-        if obj.type == "DontCare":
-            continue
+        if obj.type != 'Car' or obj.t[2] > 70.4:
+           continue
         cv2.rectangle(
             img1,
             (int(obj.xmin), int(obj.ymin)),
             (int(obj.xmax), int(obj.ymax)),
             (0, 255, 0),
-            2,
+            1,
         )
+
         box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
+        if(box3d_pts_2d is None):
+            continue
         img2 = utils.draw_projected_box3d(img2, box3d_pts_2d)
 
-        # project
-        # box3d_pts_3d_velo = calib.project_rect_to_velo(box3d_pts_3d)
-        # box3d_pts_32d = utils.box3d_to_rgb_box00(box3d_pts_3d_velo)
-        # box3d_pts_32d = calib.project_velo_to_image(box3d_pts_3d_velo)
-        # img3 = utils.draw_projected_box3d(img3, box3d_pts_32d)
-    # print("img1:", img1.shape)
-    cv2.imshow("2dbox", img1)
-    # print("img3:",img3.shape)
-    # Image.fromarray(img3).show()
-    show3d = True
+    if(pred_objects != None):
+        for obj in pred_objects:
+            if obj.type != 'Car' or obj.t[2] > 70.4:
+                continue
+            cv2.rectangle(
+                img1,
+                (int(obj.xmin), int(obj.ymin)),
+                (int(obj.xmax), int(obj.ymax)),
+                (0, 0, 255),
+                1,
+            )
+
+            box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
+            if(box3d_pts_2d is None):
+                continue
+            img2 = utils.draw_projected_box3d(img2, box3d_pts_2d, color=(0,0,255))        
+
+    bbox2d_path = save_dir + '2dbox/' + str(data_idx).zfill(6) + '.png'
+    bbox3d_path = save_dir + '3dbox/' + str(data_idx).zfill(6) + '.png'
+    
+    if(save_img):
+        cv2.imwrite(bbox2d_path, img1)
+    else:
+        cv2.imshow("2dbox", img1)
+    
     if show3d:
-        # print("img2:",img2.shape)
-        cv2.imshow("3dbox", img2)
+        if(save_img):
+            cv2.imwrite(bbox3d_path, img2)
+        else:
+            cv2.imshow("3dbox", img2)
     if depth is not None:
         cv2.imshow("depth", depth)
 
@@ -307,7 +321,7 @@ def get_lidar_in_image_fov(
 
 
 def get_lidar_index_in_image_fov(
-    pc_velo, calib, xmin, ymin, xmax, ymax, return_more=False, clip_distance=2.0
+    pc_velo, calib, xmin, ymin, xmax, ymax, return_more=False, clip_distance=1.0
 ):
     """ Filter lidar points, keep those in image FOV """
     pts_2d = calib.project_velo_to_image(pc_velo)
@@ -351,9 +365,11 @@ def show_lidar_with_depth(
     objects_pred=None,
     depth=None,
     cam_img=None,
+    data_idx=0,
     constraint_box=False,
     pc_label=False,
     save=False,
+    fov_restrict=False
 ):
     """ Show all LiDAR points.
         Draw 3d box in LiDAR point cloud (in velo coord system) """
@@ -366,32 +382,25 @@ def show_lidar_with_depth(
         )
         pc_velo = pc_velo[pc_velo_index, :]
         print(("FOV point num: ", pc_velo.shape))
+        pc_velo = pc_velo[pc_velo[:,0] < 70.4]
+    
+    if fov_restrict:
+        x_range = [0, 70.4]
+        y_range = [-40, 40]
+        z_range = [-1, 3]
+        
+        pts_x, pts_y, pts_z = pc_velo[:, 0], pc_velo[:, 1], pc_velo[:, 2]
+        range_flag = (pts_x >= x_range[0]) & (pts_x <= x_range[1]) \
+                    & (pts_y >= y_range[0]) & (pts_y <= y_range[1]) \
+                    & (pts_z >= z_range[0]) & (pts_z <= z_range[1])
+        pc_velo = pc_velo[range_flag, :]
+
     print("pc_velo", pc_velo.shape)
-    draw_lidar(pc_velo, fig=fig, pc_label=pc_label)
-
-    # Draw depth
-    if depth is not None:
-        depth_pc_velo = calib.project_depth_to_velo(depth, constraint_box)
-
-        indensity = np.ones((depth_pc_velo.shape[0], 1)) * 0.5
-        depth_pc_velo = np.hstack((depth_pc_velo, indensity))
-        print("depth_pc_velo:", depth_pc_velo.shape)
-        print("depth_pc_velo:", type(depth_pc_velo))
-        print(depth_pc_velo[:5])
-        draw_lidar(depth_pc_velo, fig=fig, pts_color=(1, 1, 1))
-
-        if save:
-            data_idx = 0
-            vely_dir = "data/object/training/depth_pc"
-            save_filename = os.path.join(vely_dir, "%06d.bin" % (data_idx))
-            print(save_filename)
-            # np.save(save_filename+".npy", np.array(depth_pc_velo))
-            depth_pc_velo = depth_pc_velo.astype(np.float32)
-            depth_pc_velo.tofile(save_filename)
+    draw_lidar(pc_velo, fig=fig, pc_label=pc_label, pts_scale=1.0)
 
     color = (0, 1, 0)
     for obj in objects:
-        if obj.type == "DontCare":
+        if obj.type != "Car" or obj.t[2] > 70.4:
             continue
         # Draw 3d bounding box
         box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
@@ -399,12 +408,14 @@ def show_lidar_with_depth(
         print("box3d_pts_3d_velo:")
         print(box3d_pts_3d_velo)
 
-        draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=color, label=obj.type)
+        color_list = [(0,1,0), (0,0,1)]
+
+        draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=color, label=obj.type, color_list = color_list, draw_text=False)
 
     if objects_pred is not None:
         color = (1, 0, 0)
         for obj in objects_pred:
-            if obj.type == "DontCare":
+            if obj.type != "Car":
                 continue
             # Draw 3d bounding box
             box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
@@ -412,6 +423,7 @@ def show_lidar_with_depth(
             print("box3d_pts_3d_velo:")
             print(box3d_pts_3d_velo)
             draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=color)
+
             # Draw heading arrow
             ori3d_pts_2d, ori3d_pts_3d = utils.compute_orientation_3d(obj, calib.P)
             ori3d_pts_3d_velo = calib.project_rect_to_velo(ori3d_pts_3d)
@@ -426,7 +438,12 @@ def show_lidar_with_depth(
                 line_width=1,
                 figure=fig,
             )
-    mlab.show(1)
+
+    if(args.save_img):
+        mlab.savefig(args.save_dir + 'lidar/' + str(data_idx).zfill(6) + '.png')
+        mlab.clf()
+    else:
+        mlab.show(1)
 
 
 def save_depth0(
@@ -527,49 +544,50 @@ def show_lidar_with_boxes(
 
     color = (0, 1, 0)
     for obj in objects:
-        if obj.type == "DontCare":
-            continue
-        # Draw 3d bounding box
-        box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
-        box3d_pts_3d_velo = calib.project_rect_to_velo(box3d_pts_3d)
-        print("box3d_pts_3d_velo:")
-        print(box3d_pts_3d_velo)
+        if obj.type == "Car":
+            # Draw 3d bounding box
+            box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
+            box3d_pts_3d_velo = calib.project_rect_to_velo(box3d_pts_3d)
+            print("box3d_pts_3d_velo:")
+            print(box3d_pts_3d_velo)
 
-        draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=color)
+            draw_gt_boxes3d([box3d_pts_3d_velo], fig=fig, color=color)
 
-        # Draw depth
-        if depth is not None:
-            # import pdb; pdb.set_trace()
-            depth_pt3d = depth_region_pt3d(depth, obj)
-            depth_UVDepth = np.zeros_like(depth_pt3d)
-            depth_UVDepth[:, 0] = depth_pt3d[:, 1]
-            depth_UVDepth[:, 1] = depth_pt3d[:, 0]
-            depth_UVDepth[:, 2] = depth_pt3d[:, 2]
-            print("depth_pt3d:", depth_UVDepth)
-            dep_pc_velo = calib.project_image_to_velo(depth_UVDepth)
-            print("dep_pc_velo:", dep_pc_velo)
+            # Draw depth
+            if depth is not None:
+                # import pdb; pdb.set_trace()
+                depth_pt3d = depth_region_pt3d(depth, obj)
+                depth_UVDepth = np.zeros_like(depth_pt3d)
+                depth_UVDepth[:, 0] = depth_pt3d[:, 1]
+                depth_UVDepth[:, 1] = depth_pt3d[:, 0]
+                depth_UVDepth[:, 2] = depth_pt3d[:, 2]
+                print("depth_pt3d:", depth_UVDepth)
+                dep_pc_velo = calib.project_image_to_velo(depth_UVDepth)
+                print("dep_pc_velo:", dep_pc_velo)
 
-            draw_lidar(dep_pc_velo, fig=fig, pts_color=(1, 1, 1))
-        #
+                draw_lidar(dep_pc_velo, fig=fig, pts_color=(0, 0, 255))
+            #
 
-        # Draw heading arrow
-        ori3d_pts_2d, ori3d_pts_3d = utils.compute_orientation_3d(obj, calib.P)
-        ori3d_pts_3d_velo = calib.project_rect_to_velo(ori3d_pts_3d)
-        x1, y1, z1 = ori3d_pts_3d_velo[0, :]
-        x2, y2, z2 = ori3d_pts_3d_velo[1, :]
-        mlab.plot3d(
-            [x1, x2],
-            [y1, y2],
-            [z1, z2],
-            color=color,
-            tube_radius=None,
-            line_width=1,
-            figure=fig,
-        )
+            # Draw heading arrow
+            ori3d_pts_2d, ori3d_pts_3d = utils.compute_orientation_3d(obj, calib.P)
+            ori3d_pts_3d_velo = calib.project_rect_to_velo(ori3d_pts_3d)
+            x1, y1, z1 = ori3d_pts_3d_velo[0, :]
+            x2, y2, z2 = ori3d_pts_3d_velo[1, :]
+            mlab.plot3d(
+                [x1, x2],
+                [y1, y2],
+                [z1, z2],
+                color=color,
+                tube_radius=None,
+                line_width=1,
+                figure=fig,
+            )
+
+
     if objects_pred is not None:
         color = (1, 0, 0)
         for obj in objects_pred:
-            if obj.type == "DontCare":
+            if obj.type != "Car":
                 continue
             # Draw 3d bounding box
             box3d_pts_2d, box3d_pts_3d = utils.compute_box_3d(obj, calib.P)
@@ -591,7 +609,7 @@ def show_lidar_with_boxes(
                 line_width=1,
                 figure=fig,
             )
-    mlab.show(1)
+    # mlab.show(1)
 
 
 def box_min_max(box3d):
@@ -675,20 +693,20 @@ def show_lidar_topview_with_boxes(pc_velo, objects, calib, objects_pred=None):
         box3d_pts_3d_velo = calib.project_rect_to_velo(box3d_pts_3d)
         return box3d_pts_3d_velo
 
-    boxes3d = [bbox3d(obj) for obj in objects if obj.type != "DontCare"]
+    boxes3d = [bbox3d(obj) for obj in objects if obj.type == "Car"]
     gt = np.array(boxes3d)
     # print("box2d BV:",boxes3d)
-    lines = [obj.type for obj in objects if obj.type != "DontCare"]
+    # lines = [obj.type for obj in objects if obj.type == "Car"]
     top_image = utils.draw_box3d_on_top(
-        top_image, gt, text_lables=lines, scores=None, thickness=1, is_gt=True
+        top_image, gt, scores=None, thickness=1, is_gt=True
     )
     # pred
     if objects_pred is not None:
         boxes3d = [bbox3d(obj) for obj in objects_pred if obj.type != "DontCare"]
         gt = np.array(boxes3d)
-        lines = [obj.type for obj in objects_pred if obj.type != "DontCare"]
+        # lines = [obj.type for obj in objects_pred if obj.type != "DontCare"]
         top_image = utils.draw_box3d_on_top(
-            top_image, gt, text_lables=lines, scores=None, thickness=1, is_gt=False
+            top_image, gt, scores=None, thickness=1, is_gt=False
         )
 
     cv2.imshow("top_image", top_image)
@@ -696,8 +714,9 @@ def show_lidar_topview_with_boxes(pc_velo, objects, calib, objects_pred=None):
 
 def dataset_viz(root_dir, args):
     dataset = kitti_object(root_dir, split=args.split, args=args)
+
     ## load 2d detection results
-    objects2ds = read_det_file("box2d.list")
+    # objects2ds = read_det_file("box2d.list")
 
     if args.show_lidar_with_depth:
         import mayavi.mlab as mlab
@@ -705,7 +724,9 @@ def dataset_viz(root_dir, args):
         fig = mlab.figure(
             figure=None, bgcolor=(0, 0, 0), fgcolor=None, engine=None, size=(1000, 500)
         )
-    for data_idx in range(len(dataset)):
+
+    # for data_idx in range(len(dataset)):
+    for data_idx in range(6584, 9100):
         if args.ind > 0:
             data_idx = args.ind
         # Load data from dataset
@@ -713,7 +734,8 @@ def dataset_viz(root_dir, args):
             objects = dataset.get_label_objects(data_idx)
         else:
             objects = []
-        objects2d = objects2ds[data_idx]
+
+        # objects2d = objects2ds[data_idx]
 
         objects_pred = None
         if args.pred:
@@ -736,19 +758,16 @@ def dataset_viz(root_dir, args):
         pc_velo = dataset.get_lidar(data_idx, dtype, n_vec)[:, 0:n_vec]
         calib = dataset.get_calibration(data_idx)
         img = dataset.get_image(data_idx)
+
         img_height, img_width, img_channel = img.shape
         print(data_idx, "image shape: ", img.shape)
         print(data_idx, "velo  shape: ", pc_velo.shape)
+
         if args.depth:
             depth, is_exist = dataset.get_depth(data_idx)
             print(data_idx, "depth shape: ", depth.shape)
         else:
             depth = None
-
-        # depth = cv2.cvtColor(depth, cv2.COLOR_BGR2RGB)
-        # depth_height, depth_width, depth_channel = img.shape
-
-        # print(('Image shape: ', img.shape))
 
         if args.stat:
             stat_lidar_with_boxes(pc_velo, objects, calib)
@@ -756,7 +775,9 @@ def dataset_viz(root_dir, args):
         print("======== Objects in Ground Truth ========")
         n_obj = 0
         for obj in objects:
-            if obj.type != "DontCare":
+            if obj.type != "Car":
+                continue
+            else:
                 print("=== {} object ===".format(n_obj + 1))
                 obj.print_object()
                 n_obj += 1
@@ -769,7 +790,7 @@ def dataset_viz(root_dir, args):
         # show_image_with_boxes_3type(img, objects, calib, objects2d, data_idx, objects_pred)
         if args.show_image_with_boxes:
             # Draw 2d and 3d boxes on image
-            show_image_with_boxes(img, objects, calib, True, depth)
+            show_image_with_boxes(img, objects, objects_pred, calib, args.save_dir, data_idx, args.scale, args.save_img, True, depth)
         if args.show_lidar_with_depth:
             # Draw 3d box in LiDAR point cloud
             show_lidar_with_depth(
@@ -783,20 +804,28 @@ def dataset_viz(root_dir, args):
                 objects_pred,
                 depth,
                 img,
+                data_idx,
                 constraint_box=args.const_box,
                 save=args.save_depth,
                 pc_label=args.pc_label,
+                fov_restrict=args.fov_restrict
             )
             # show_lidar_with_boxes(pc_velo, objects, calib, True, img_width, img_height, \
             #    objects_pred, depth, img)
         if args.show_lidar_on_image:
             # Show LiDAR points on image.
             show_lidar_on_image(pc_velo[:, 0:3], img, calib, img_width, img_height)
-        input_str = raw_input()
+        if(args.save_img):
+            if(args.ind > 0):
+                mlab.clf()
+            else:
+                continue
+        else:
+            input_str = raw_input()
 
-        mlab.clf()
-        if input_str == "killall":
-            break
+            # mlab.clf()
+            if input_str == "killall":
+                break
 
 
 def depth_to_lidar_format(root_dir, args):
@@ -935,6 +964,30 @@ if __name__ == "__main__":
         action="store_true",
         help="show lidar topview",
     )
+    parser.add_argument(
+        '--save_dir',
+        type=str,
+        default='./data/object/training/saved_images/'
+    )
+    parser.add_argument(
+        '--save_img',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--scale',
+        nargs='+',
+        type=float,
+        default=[1.0,1.0]
+    )
+    parser.add_argument(
+        '--car_only',
+        action='store_true'
+    )
+    parser.add_argument(
+        '--fov_restrict',
+        action='store_true'
+    )
+
     args = parser.parse_args()
     if args.pred:
         assert os.path.exists(args.dir + "/" + args.split + "/pred")
